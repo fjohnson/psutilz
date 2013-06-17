@@ -1,0 +1,40 @@
+set terminal png size 2048,1536
+set output 'memory.png' #Set output path here
+
+set multiplot layout 2,2 title 'Memory Utilization'
+
+set title "Memory Utilization %"
+set ylabel "Sample Time (seconds)"
+set zlabel "Mem %"
+set xlabel 'PID'
+set xrange [0:4] # number of pids +-1
+set xtics ("2494" 1, "2494" 2, "2494" 3) 
+splot 'mem.dat' using 1:2:3 title '2494,bash,read' with linespoints,\
+'mem.dat' using 8:9:10 title '2494,bash,write' with linespoints,\
+'mem.dat' using 15:16:17 title '2494,bash,read' with linespoints
+
+set title "Memory Utilization %"
+set ylabel "Mem %"
+set xlabel 'Sample Time (seconds)'
+set xrange [0:4] #Set time -+ small amount
+unset xtics 
+set xtics
+plot 'mem.dat' using 2:3 title '2494,bash' with linespoints,\
+'mem.dat' using 9:10 title '2494,bash' with linespoints,\
+'mem.dat' using 16:17 title '2494,bash' with linespoints
+
+set title "Memory RSS"
+set ylabel "Sample Time (seconds)"
+set zlabel "Mem RSS (bytes)"
+set xlabel 'PID'
+set xrange [0:4] # number of pids +-1
+set xtics ("2494" 1, "2494" 2, "2494" 3) 
+splot 'mem.dat' using 1:4:5 title '2494,bash,read' with linespoints,\
+'mem.dat' using 8:11:12 title '2494,bash,write' with linespoints,\
+'mem.dat' using 15:18:19 title '2494,bash,read' with linespoints
+
+set title "Memory VM"
+set zlabel "Mem VM (bytes)"
+splot 'mem.dat' using 1:6:7 title '2494,bash,read' with linespoints,\
+'mem.dat' using 8:13:14 title '2494,bash,write' with linespoints,\
+'mem.dat' using 15:20:21 title '2494,bash,read' with linespoints

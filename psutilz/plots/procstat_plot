@@ -1,0 +1,27 @@
+set terminal png size 1024,1536
+set output 'procstat.png' #Set output path here
+
+set multiplot layout 2,1 title 'Process Status Over Time'
+set xlabel 'PID'
+set xrange [0:2] # number of PIDs +-1
+set xtics ("2000" 1, "2001" 2)
+set ylabel "Sample Time (seconds)"
+set ztics ("running" 0, "sleeping" 1, "disk sleep" 2, "stopped" 3, "tracing stop" 4, "zombie" 5,\
+           "dead" 6, "wake kill" 7, "waking" 8, "idle" 9, "locked" 10, "waiting" 11) 
+
+splot 'procstat.dat' using 1:2:3 title 'user' with step,\
+'procstat.dat' using 4:5:6 title 'system' with step
+
+
+set xlabel 'Sample Time (seconds)'
+set xrange [0:4] #Set time -+ small amount
+unset xtics
+set xtics
+set ylabel "Status"
+set yrange [-.5:5.5] #Set status -+ small amount
+set ytics ("running" 0, "sleeping" 1, "disk sleep" 2, "stopped" 3, "tracing stop" 4, "zombie" 5,\
+           "dead" 6, "wake kill" 7, "waking" 8, "idle" 9, "locked" 10, "waiting" 11)
+
+plot 'procstat.dat' using 2:3 title 'user' with points,\
+'procstat.dat' using 5:6 title 'system' with points
+

@@ -1,0 +1,30 @@
+set terminal png size 1024,1536
+set output 'system_cpu.png' #Set output path here
+
+set multiplot layout 2,1 title 'System CPU Activity Times'
+set zlabel "Time\n (seconds)"
+set xlabel 'Activity'
+set xrange [0:8] # number of cpu stats +-1
+set ylabel "Sample Time (seconds)"
+set xtics ("user" 1, "system" 2, "idle" 3, "nice" 4, "io wait" 5, "irq" 6, "soft irq" 7) 
+splot 'system_cpu.dat' using 1:15:2 title 'user' with linespoints,\
+'system_cpu.dat' using 3:15:4 title 'system' with linespoints,\
+'system_cpu.dat' using 5:15:6 title 'idle' with linespoints,\
+'system_cpu.dat' using 7:15:8 title 'nice' with linespoints,\
+'system_cpu.dat' using 9:15:10 title 'io wait' with linespoints,\
+'system_cpu.dat' using 11:15:12 title 'irq' with linespoints,\
+'system_cpu.dat' using 13:15:14 title 'soft irq' with linespoints
+
+set xlabel 'Sample Time (seconds)'
+set xrange [0:8] #Set time -+ small amount
+set ylabel "Time Spent (seconds)"
+set yrange [0:8] #Set time -+ small amount
+unset xtics
+set xtics
+plot 'system_cpu.dat' using 15:2 title 'user' with linespoints,\
+'system_cpu.dat' using 15:4 title 'system' with linespoints,\
+'system_cpu.dat' using 15:6 title 'idle' with linespoints,\
+'system_cpu.dat' using 15:8 title 'nice' with linespoints,\
+'system_cpu.dat' using 15:10 title 'io wait' with linespoints,\
+'system_cpu.dat' using 15:12 title 'irq' with linespoints,\
+'system_cpu.dat' using 15:14 title 'soft irq' with linespoints

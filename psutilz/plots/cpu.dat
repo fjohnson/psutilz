@@ -1,0 +1,26 @@
+#cpu utilization and affinity data for three process
+#columns
+#1 = xtic1
+#2 = sample time xtic1
+#3 = cpu xtic1
+#4 = allowed number of cpu xtic1
+#5 = user time xtic1
+#6 = kernel time xtic1 
+
+#7 = xtic2
+#8 = sample xtic2 
+#9 = cpu xtic2
+#10 = allowed number of cpu xtic2
+#11 = user xtic2
+#12 = kernel xtic2
+
+#13 = xtic3
+#14 = sample xtic3
+#15 = cpu xtic3
+#16 = allowed number of cpu xtic3
+#17 = user xtic3
+#18 = kernel xtic3
+
+1 1 30 4 50 60   2 1 15 3 60 78   3 1 16 3 23 43
+1 2 45 4 55 65   2 2  7 4 65 89   3 2 89 3 54 65
+1 3 43 4 60 70   2 3 12 4 78 105  3 3 88 3 70 65

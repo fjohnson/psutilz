@@ -77,18 +77,19 @@ class Plot():
         for p in self.datapoints[:-1]:
             strbuf.append(p)
         if self.datapoints != []:
-            strbuf.append(self.datapoints[-1][-2]) #strip ,\ off last data point entry
+            strbuf.append(self.datapoints[-1][:-2]) #strip ,\ off last data point entry
 
         return '\n'.join(strbuf)
 
 class MultiPlot():
     '''A class representing a gnu multiplot. Contains one or more Plot instances'''
 
-    def __init__(self, properties):
+    def __init__(self, layout, title):
         '''Set the multiple properties.
         Properties looks like: set multiplot layout 2,1 title 'System CPU Activity Times'
         '''
-        self.properties = properties
+        self.layout = "set multiplot layout %s" % layout
+        self.title = title
         self.plots = []
 
     def create_plot(self):
@@ -98,10 +99,10 @@ class MultiPlot():
         return p
 
     def __str__(self):
-        strbuf = [self.properties]
+        strbuf = [self.layout, 'set title "%s"' % self.title]
         for plot in self.plots:
             strbuf.append(str(plot))
-        return '\n'.join(strbuf)
+        return '\n\n'.join(strbuf)
 
 class Procstat():
     '''stats for a single process'''
@@ -217,7 +218,7 @@ def print_matrix(m):
     for r in xrange(len(m)):
         print ','.join(m[r])
 
-def matrix(proc_stat_objs,items,additional_data):
+def matrix(proc_stat_objs,items,additional_data=[]):
     '''Convert data collected into a matrix readable by gnuplot'''
 
     accumulator = []
@@ -264,15 +265,30 @@ def get_num_rows(psobjs,keys,additional=[]):
         maxd = max(maxd,len(k))
     return maxd
 
-def create_chart(title,xlabel,ylabel,xaxis_rows,yaxis_rows,inst_file,data_file,details,filename):
+def write_matrix(data_matrix, data_file):
+    '''write out a matrix into a csv gnu plot dat file'''
 
-    m = matrix(xaxis_rows,yaxis_rows)
+    data_file.seek(0)
+    data_file.truncate()
+    for r in data_matrix:
+        data_file.write(','.join(r))
+        data_file.write('\n')
+    data_file.flush()
+    os.fsync(data_file.fileno())
+
+    #debug
+    import shutil
+    shutil.copyfile(data_file.name,'/tmp/checkdata.txt')#debug
+
+inst_file = NamedTemporaryFile() #gnuplot instructions
+def create_chart(plot, filename, terminal):
 
     inst_file.seek(0)
     inst_file.truncate()
+    inst_file.write('set terminal %s' % terminal)
     inst_file.write('set datafile separator ","\n')
     inst_file.write('set output "%s"\n'%os.path.join(os.path.expanduser(options['chart_dir']),filename))
-    inst_file.write(details)
+    inst_file.write(str(plot))
     inst_file.flush()
     os.fsync(inst_file.fileno())
 
@@ -280,26 +296,16 @@ def create_chart(title,xlabel,ylabel,xaxis_rows,yaxis_rows,inst_file,data_file,d
     import shutil
     shutil.copyfile(inst_file.name,'/tmp/check.txt')
 
-    data_file.seek(0)
-    data_file.truncate()
-    for r in m:
-        data_file.write(','.join(r))
-        data_file.write('\n')
-    data_file.flush()
-    os.fsync(data_file.fileno())
-
-    #debug
-    shutil.copyfile(data_file.name,'/tmp/checkdata.txt')#debug
 
     #I'm not sure why but subprocess.check_call and Popen don't want to behave
     #sometimes they throw 'Process' object is not callable
     pid = os.fork()
     if not pid:
-        print >> sys.stderr, 'Generating plot "%s"'%title
+        print >> sys.stderr, 'Generating plot "%s"'%plot.title
         os.execvp('gnuplot',['gnuplot',inst_file.name])
     ec = os.waitpid(pid,0)[1]
     if ec:
-        print >> sys.stderr, 'Warning: gnuplot "%s" returned code %d' %(title,ec)
+        print >> sys.stderr, 'Warning: gnuplot "%s" returned code %d' %(plot.title,ec)
 
 def create_ticks(proc_stat_objs):
     pids = pid_list(proc_stat_objs)
@@ -315,7 +321,7 @@ def pid_list(proc_stat_objs):
     '''Return a list of pids derived from a list of proc stat objects'''
     return map(lambda p: p.pid, proc_stat_objs)
 
-def create_cpu_util_chart(proc_stat_objs,inst_file,data_file):
+def create_cpu_util_chart(proc_stat_objs, data_file):
     '''create the cpu utilization chart
     maps cpu utilization across processes and system time, kernel/user time
     and cpu affinity
@@ -323,7 +329,7 @@ def create_cpu_util_chart(proc_stat_objs,inst_file,data_file):
     see plots/cpu* for a reference gnuplot, picture and demo data
     '''
 
-    mp = MultiPlot("set multiplot layout 3,2 title 'CPU Utilization'")
+    mp = MultiPlot("3,2",'CPU Utilization')
     ticks = create_ticks(proc_stat_objs)
     #create 3d cpu utilization plot
 
@@ -408,174 +414,32 @@ def create_cpu_util_chart(proc_stat_objs,inst_file,data_file):
                                   (data_file.name, i, i+2, ps.pid, ps.name))
         i+=6
 
-# def create_cpu_util_chart2(proc_stat_objs,inst_file,data_file):
-#
-#     '''create the cpu utilization chart
-#     maps cpu utilization across processes and system time, kernel/user time
-#     and cpu affinity
-#
-#     see plots/cpu* for a reference gnuplot, picture and demo data
-#     '''
-#
-#     #collect data
-#
-#     items = ('sample_time','cpu_percent','cpu_affinity',
-#              'cpu_user','cpu_kernel')
-#     additional_data = [_sys_stats['system_cpu_percent'],_sys_stats['sample_time']]
-#     m=matrix(proc_stat_objs,items,additional_data)
-#
-#     #cpu utilization 3d chart
-#
-#     details=['''
-# set terminal png size 2048,1536
-# set multiplot layout 3,2 title 'CPU Utilization'
-# set title "CPU % Utilization"
-# set zlabel "CPU %"
-# set xlabel 'PID'
-# set ylabel 'Sample Time (seconds)'
-# set xrange [0:%d] # number of pids + system +1'''%len(proc_stat_objs)+1]
-#
-#
-#     ticks = map(lambda x : x.pid, proc_stat_objs)
-#     ticks.append('system')
-#     details.append('\nset xtics %s'%create_ticks(ticks))
-#     details.append('\nsplot')
-#
-#     i=0
-#     x=1
-#     y=2
-#     z=3
-#     for k,ps in enumerate(proc_stat_objs):
-#         details.append("'%s' using %d:%d:%d title '%s,%s' with linespoints"%
-#                        (data_file.name,x+i,y+i,z+i, ps.p.pid, ps.p.name))
-#         if k != len(proc_stat_objs)-1:
-#             details.append(', \\\n')
-#         i+=6
-#
-#     #cpu utilization 2d chart
-#
-#     details.append('''
-# set title "CPU % Utilization"
-# set xlabel 'Sample Time (seconds)'
-# set xrange [0:%f] #Set time -+ small amount
-# set ylabel "CPU %"
-# set yrange [*:*]
-# unset xtics
-# set xtics\n
-# plot '''%_end_time)
-#
-#     i=0
-#     x=2
-#     y=3
-#     for k,ps in enumerate(proc_stat_objs):
-#         details.append("'%s' using %d:%d title '%s,%s' with linespoints"%
-#                        (data_file.name,x+i,y+i, ps.p.pid, ps.p.name))
-#         if k != len(proc_stat_objs)-1:
-#             details.append(', \\\n')
-#         i+=6
-#
-#
-#     #cpu user/kernel time 3d
-#
-#     details.append('''
-# set title "CPU User/Kernel Time"
-# set ylabel 'Sample Time (seconds)'
-# set zlabel "Time\n(seconds)"
-# set xlabel 'PID'
-# set xrange [0:%f] # number of pids +-1'''%len(proc_stat_objs))
-#     details.append('\nset xtics %s'%create_ticks(ticks[:-1])) #strip system tick
-#     details.append('\nsplot')
-#
-#     x,y,z=-5,-4,0
-#     for k,ps in enumerate(proc_stat_objs):
-#         if k%2 == 0:
-#             x+=6
-#             y+=6
-#             z+=5
-#             details.append("'%s' using %d:%d:%d title '%s,%s,user' with linespoints"%
-#                            (data_file.name,x,y,z, ps.p.pid, ps.p.name))
-#         else:
-#             z+=1
-#             details.append("'%s' using %d:%d:%d title '%s,%s,kernel' with linespoints"%
-#                            (data_file.name,x,y,z, ps.p.pid, ps.p.name))
-#         if k != len(proc_stat_objs)-1:
-#             details.append(', \\\n')
-#
-#     #cpu user/kernel time 2d
-#
-#     details.append('''
-# set title "CPU User/Kernel Time"
-# set xlabel 'Sample Time (seconds)'
-# set xrange [0:%f] #Set time -+ small amount
-# set ylabel "Time\n(seconds)"
-# set yrange [*:*]
-# unset xtics
-# set xtics
-# '''%_end_time)
-#
-#     x=-4
-#     y=-1
-#     for k,ps in enumerate(proc_stat_objs):
-#         if k%2 == 0:
-#             x+=6
-#             y+=6
-#             details.append("'%s' using %d:%d title '%s,%s,user' with linespoints"%
-#                            (data_file.name,x,y, ps.p.pid, ps.p.name))
-#         else:
-#             y+=1
-#             details.append("'%s' using %d:%d title '%s,%s,kernel' with linespoints"%
-#                            (data_file.name,x,y, ps.p.pid, ps.p.name))
-#         if k != len(proc_stat_objs)-1:
-#             details.append(', \\\n')
-#
-#     #cpu affinity chart
-#     details.append('''
-# set title "Allowed number of CPUs"
-# set ylabel "Number of CPUs"
-# set yrange [.5:%f] #num cpus +.5
-# plot '''%psutil.NUM_CPUS)
-#
-#     x,y=2,4
-#     i=0
-#     for k,ps in enumerate(proc_stat_objs):
-#         details.append("'%s' using %d:%d title '%s,%s' with linespoints"%
-#                         (data_file.name,x,y, ps.p.pid, ps.p.name))
-#         if k != len(proc_stat_objs)-1:
-#             details.append(', \\\n')
-#         i+=6
-#
-#     create_chart('CPU Utilization',"Sample Time (seconds)","CPU Percent",
-#                  xaxis_rows, yaxis_rows,
-#                  inst_file, data_file,''.join(details),'cpu_utilization.jpg')
-#
-# def create_io_chart(proc_stat_objs,inst_file,data_file,type):
-#
-#     details=['set multiplot layout 2, 1 title "IO r/w Utilization"\n']
-#     details.append('plot ')
-#     i=1
-#     for ps in proc_stat_objs:
-#         details.append("'%s' using %d:%d title '%s,%s' with linespoints"%
-#                        (data_file.name,i,i+1, ps.p.pid, ps.p.name))
-#         details.append(', \\\n')
-#         i+=2
-#
-#     #extract collected data with name key from pstat objs and combine into a list
-#     xaxis_rows=map(lambda p: p['sample_time'], proc_stat_objs)
-#     yaxis_rows=map(lambda p: p[type], proc_stat_objs)
-#
-#     yaxis_label = 'Bytes Read' if type == 'io_readbytes' else 'Bytes Written'
-#     outputf = 'io_r_utilization' if type == 'io_readbytes' else 'io_w_utilization'
-#     create_chart('IO Utilization',"Sample Time (seconds)",yaxis_label,
-#                  xaxis_rows, yaxis_rows,
-#                  inst_file, data_file,''.join(details),'cpu_utilization.jpg')
+    m = matrix(proc_stat_objs, ['sample_time', 'cpu_percent', 'cpu_affinity', 'cpu_user', 'cpu_kernel'])
+    return mp,m
 
-def create_charts(proc_stat_objs,elapsed_time):
+def create_charts(proc_stat_objs):
     '''Create gnuplots out of collected stats'''
 
-    inst_file = NamedTemporaryFile() #gnuplot instructions
-    data_file = NamedTemporaryFile() #file holding data to chart
+    data_file_list = []
+    generated_plots = []
+    for chart in [create_cpu_util_chart]:
+        df = NamedTemporaryFile() #file will hold data to plot
+        multiplot, data_matrix = chart(proc_stat_objs, df)
+        generated_plots.append(multiplot)
+        write_matrix(df, data_matrix)
+        data_file_list.append(df)
 
-    create_cpu_util_chart(proc_stat_objs,inst_file,data_file)
+    combined_mp = MultiPlot()
+    combined_mp.title = "Process stats"
+    for mp in generated_plots:
+        for p in mp.plots:
+            combined_mp.append(p)
+    if len(combined_mp.plots) % 2 != 0:
+        rows = len(combined_mp.plots)+1
+    else:
+        rows = len(combined_mp.plots)
+    combined_mp.layout = str(rows)+',2'
+    create_chart(combined_mp, 'mega.png','png size 2048')
 
 
 def end(signum,frame):

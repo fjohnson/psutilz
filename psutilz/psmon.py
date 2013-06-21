@@ -6,7 +6,7 @@ import pscommon
 import time
 import os
 import itertools
-from subprocess import Popen as c
+from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
 from itertools import izip
 
@@ -20,6 +20,8 @@ children of child processes and so on (the stats collection is recursive on chil
 
 Refer to the 'plots' dir for example gnuplot code, data and generated plots
 '''
+
+class PsmonException(Exception): pass
 
 class Plot():
     '''A class representation of a 2d or 3d gnuplot'''
@@ -51,8 +53,8 @@ class Plot():
         '''
 
         if self.datapoints == []:
-            if self.is_3d: self.datapoints.append('splot')
-            else: self.datapoints.append('plot')
+            if self.is_3d: self.datapoints.append('splot \\')
+            else: self.datapoints.append('plot \\')
         self.datapoints.append(datapoint + ',\\' )
 
     def __str__(self):
@@ -276,38 +278,29 @@ def write_matrix(data_matrix, data_file):
     data_file.flush()
     os.fsync(data_file.fileno())
 
-    #debug
-    import shutil
-    shutil.copyfile(data_file.name,'/tmp/checkdata.txt')#debug
-
 inst_file = NamedTemporaryFile() #gnuplot instructions
-def create_chart(plot, filename, terminal):
+def create_chart(plot, img_filename, terminal):
 
     inst_file.seek(0)
     inst_file.truncate()
-    inst_file.write('set terminal %s' % terminal)
+    inst_file.write('set terminal %s\n' % terminal)
     inst_file.write('set datafile separator ","\n')
-    inst_file.write('set output "%s"\n'%os.path.join(os.path.expanduser(options['chart_dir']),filename))
+    inst_file.write('set output "%s"\n'%img_filename)
     inst_file.write(str(plot))
     inst_file.flush()
     os.fsync(inst_file.fileno())
 
-    #debug
-    import shutil
-    shutil.copyfile(inst_file.name,'/tmp/check.txt')
+    print >> sys.stderr, 'Generating plot "%s"'%plot.title
+    p = Popen(['gnuplot',inst_file.name], stdout = PIPE, stderr = PIPE)
+    stdout, stderr = p.communicate()
+    if p.returncode:
+        raise PsmonException('Warning: gnuplot "%s" returned code %d\nstdout:%s\nstderr:%s'
+                             %(plot.title,p.returncode, stdout, stderr))
 
-
-    #I'm not sure why but subprocess.check_call and Popen don't want to behave
-    #sometimes they throw 'Process' object is not callable
-    pid = os.fork()
-    if not pid:
-        print >> sys.stderr, 'Generating plot "%s"'%plot.title
-        os.execvp('gnuplot',['gnuplot',inst_file.name])
-    ec = os.waitpid(pid,0)[1]
-    if ec:
-        print >> sys.stderr, 'Warning: gnuplot "%s" returned code %d' %(plot.title,ec)
 
 def create_ticks(proc_stat_objs):
+    '''Create the tics used for axis'''
+
     pids = pid_list(proc_stat_objs)
     buf=['(']
     for i,v in enumerate(pids):
@@ -335,7 +328,7 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
 
     cpu3d = mp.create_plot()
     cpu3d.title = '"CPU % Utilization"'
-    cpu3d.zlabel = '"CPU %"'
+    cpu3d.zlabel = '"CPU %" offset 3,0,0'
     cpu3d.xlabel = "'PID'"
     cpu3d.ylabel = "'Sample Time (seconds)'"
     cpu3d.xrange = '[0:4] # number of pids +1'
@@ -370,10 +363,11 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
     ku3d = mp.create_plot()
     ku3d.title = '"CPU User/Kernel Time"'
     ku3d.ylabel = "'Sample Time (seconds)'"
-    ku3d.zlabel = '"Time\n(seconds)"'
+    ku3d.zlabel = '"Time\\n(seconds)" offset 2,0,0'
     ku3d.xlabel = "'PID'"
     ku3d.xrange = '[0:4] # number of pids +-1'
     ku3d.xtics = ticks
+    ku3d.is_3d = True
 
     i = 1
     for ps in proc_stat_objs:
@@ -389,7 +383,7 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
     ku2d.title = '"CPU User/Kernel Time"'
     ku2d.xlabel = "'Sample Time (seconds)'"
     ku2d.xrange = "[0:4] #Set time -+ small amount"
-    ku2d.ylabel = '"Time\n(seconds)"'
+    ku2d.ylabel = '"Time\\n(seconds)"'
     ku2d.yrange = '[*:*]'
     ku2d.unset_xtics = True
     ku2d.set_xtics = True
@@ -410,7 +404,7 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
 
     i = 2
     for ps in proc_stat_objs:
-        allowed_cpu.add_datapoint("%s using %d:%d title '%s,%s' with linespoints"%
+        allowed_cpu.add_datapoint("'%s' using %d:%d title '%s,%s' with linespoints"%
                                   (data_file.name, i, i+2, ps.pid, ps.name))
         i+=6
 
@@ -488,46 +482,9 @@ def argparser():
                       help='Suppress displaying statistic outputs to STDOUT.')
     return parser
 
-def _test_matrix_create():
-    def dummyobj():pass
-    dummyobj.pid=0
-    dummyobj.name=0
-    p1 = Procstat(dummyobj)
-    p1['cpu_percent']=[10,20,30]
-    p1['cpu_user']=[100,200,300]
-    p1['sample_time']=[1,2,3]
-    p2 = Procstat(dummyobj)
-    p2['cpu_percent']=[40,50,60]
-    p2['cpu_user']=[400,500,600]
-    p2['sample_time']=[4,5,6]
-    d=[[7,8,9],[70,80,90]]
-    m=matrix([p1,p2],('sample_time','cpu_user','cpu_percent'),d)
-    assert m == [['1', '1', '100', '10', '2', '4', '400', '40', '7', '70'],
-                 ['1', '2', '200', '20', '2', '5', '500', '50', '8', '80'],
-                 ['1', '3', '300', '30', '2', '6', '600', '60', '9', '90']], m
-
-def _test_matrix_create2():
-    def dummyobj():pass
-    dummyobj.pid=0
-    dummyobj.name=0
-    p1 = Procstat(dummyobj)
-    p1['cpu_percent']=[10,20,30]
-    p1['cpu_user']=[100,200]
-    p1['sample_time']=[1,2,3]
-    p2 = Procstat(dummyobj)
-    p2['cpu_percent']=[40,50]
-    p2['cpu_user']=[400,500]
-    p2['sample_time']=[4,5]
-    d=[[7,8,9],[70]]
-    m=matrix([p1,p2],('sample_time','cpu_user','cpu_percent'),d)
-    assert m == [['1', '1', '100', '10', '2', '4', '400', '40', '7', '70'],
-                 ['1', '2', '200', '20', '2', '5', '500', '50', '8', ''],
-                 ['1', '3',    '', '30', '2',  '',    '',   '', '9', '']],m
 
 
 if __name__ == '__main__':
-    _test_matrix_create()
-    _test_matrix_create2()
 
     global options
 

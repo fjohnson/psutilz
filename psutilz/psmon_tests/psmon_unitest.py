@@ -1,39 +1,160 @@
 __author__ = 'fjohnson'
 
 import unittest
-from psutilz.psmon import Procstat, create_cpu_util_chart
+import difflib
+from psutilz.psmon import Procstat, create_cpu_util_chart, matrix, create_chart, write_matrix
+from tempfile import NamedTemporaryFile
+
+class MatrixTests(unittest.TestCase):
+    '''Tests for determining if data matrix are being created correctly from Procstat instances'''
+
+    def _test_matrix_create(self):
+        '''simple instance'''
+
+        def dummyobj():pass
+        dummyobj.pid=0
+        dummyobj.name=0
+        p1 = Procstat(dummyobj)
+        p1['cpu_percent']=[10,20,30]
+        p1['cpu_user']=[100,200,300]
+        p1['sample_time']=[1,2,3]
+        p2 = Procstat(dummyobj)
+        p2['cpu_percent']=[40,50,60]
+        p2['cpu_user']=[400,500,600]
+        p2['sample_time']=[4,5,6]
+        d=[[7,8,9],[70,80,90]]
+        m=matrix([p1,p2],('sample_time','cpu_user','cpu_percent'),d)
+        assert m == [['1', '1', '100', '10', '2', '4', '400', '40', '7', '70'],
+                     ['1', '2', '200', '20', '2', '5', '500', '50', '8', '80'],
+                     ['1', '3', '300', '30', '2', '6', '600', '60', '9', '90']], m
+
+    def _test_matrix_create2(self):
+        '''Instance where a certain column has missing data.
+        This would happen for instance if a process died before stats could be gathered'''
+
+        def dummyobj():pass
+        dummyobj.pid=0
+        dummyobj.name=0
+        p1 = Procstat(dummyobj)
+        p1['cpu_percent']=[10,20,30]
+        p1['cpu_user']=[100,200]
+        p1['sample_time']=[1,2,3]
+        p2 = Procstat(dummyobj)
+        p2['cpu_percent']=[40,50]
+        p2['cpu_user']=[400,500]
+        p2['sample_time']=[4,5]
+        d=[[7,8,9],[70]]
+        m=matrix([p1,p2],('sample_time','cpu_user','cpu_percent'),d)
+        assert m == [['1', '1', '100', '10', '2', '4', '400', '40', '7', '70'],
+                     ['1', '2', '200', '20', '2', '5', '500', '50', '8', ''],
+                     ['1', '3',    '', '30', '2',  '',    '',   '', '9', '']],m
 
 class ChartCreationTests(unittest.TestCase):
     def test_cpu_chart(self):
+        '''cpu chart creation test'''
+
         class processp:
-            pid = '1'
-            name = '2'
-        p1 = Procstat(processp())
-        p2 = Procstat(processp())
-        p3 = Procstat(processp())
+            def __init__(self, pid, name):
+                self.pid = pid
+                self.name = name
+
+        p1 = Procstat(processp(1,'example1'))
+        p2 = Procstat(processp(2,'example2'))
+        p3 = Procstat(processp(3,'example3'))
         p1.statmap['sample_time'] = [1,2,3]
-        p1.statmap['cpu_percent'] = [30, 45, 43]
+        p1.statmap['cpu_percent'] = [30]
         p1.statmap['cpu_affinity'] = [4,4,4]
         p1.statmap['cpu_user'] = [50,55,60]
         p1.statmap['cpu_kernel'] = [60,65,70]
 
-        p1.statmap['sample_time'] = [1,2,3]
-        p1.statmap['cpu_percent'] = [15,7,12]
-        p1.statmap['cpu_affinity'] = [3,4,4]
-        p1.statmap['cpu_user'] = [60,65,78]
-        p1.statmap['cpu_kernel'] = [78,89,105]
+        p2.statmap['sample_time'] = [1,2,3]
+        p2.statmap['cpu_percent'] = [15,7,12]
+        p2.statmap['cpu_affinity'] = [3,4,4]
+        p2.statmap['cpu_user'] = [60,65,78]
+        p2.statmap['cpu_kernel'] = [78,89,105]
 
-        p1.statmap['sample_time'] = [1,2,3]
-        p1.statmap['cpu_percent'] = [16, 89, 88]
-        p1.statmap['cpu_affinity'] = [3,3,3]
-        p1.statmap['cpu_user'] = [23,54,70]
-        p1.statmap['cpu_kernel'] = [43,65,65]
+        p3.statmap['sample_time'] = [1,2,3]
+        p3.statmap['cpu_percent'] = [16, 89, 88]
+        p3.statmap['cpu_affinity'] = [3,3,3]
+        p3.statmap['cpu_user'] = [23,54,70]
+        p3.statmap['cpu_kernel'] = [43,65,65]
 
-        def dummy():pass
-        dummy.name ='dummy'
-        mp, m = create_cpu_util_chart([p1,p2,p3], dummy)
-        assert False, str(mp)
+        datamatrix_file = NamedTemporaryFile()
+        mp, m = create_cpu_util_chart([p1,p2,p3], datamatrix_file)
+        assert m == [['1', '1', '30', '4', '50', '60', '2', '1', '15', '3', '60', '78', '3', '1', '16', '3', '23', '43'],
+                     ['1', '2', '', '4', '55', '65', '2', '2', '7', '4', '65', '89', '3', '2', '89', '3', '54', '65'],
+                     ['1', '3', '', '4', '60', '70', '2', '3', '12', '4', '78', '105', '3', '3', '88', '3', '70', '65']], m
+        #open('/tmp/out','w').write(str(mp))
+        diff = ''.join(difflib.unified_diff(str(mp).split(),
+'''
+set multiplot layout 3,2
 
+set title "CPU Utilization"
+
+set zlabel "CPU %" offset 3,0,0
+set ylabel 'Sample Time (seconds)'
+set xlabel 'PID'
+set xrange [0:4] # number of pids +1
+set xtics ("1" 1, "2" 2, "3" 3)
+set title "CPU % Utilization"
+splot \\
+'dummy' using 1:2:3 title '1,example1' with linespoints,\\
+'dummy' using 7:8:9 title '2,example2' with linespoints,\\
+'dummy' using 13:14:15 title '3,example3' with linespoints
+
+set ylabel "CPU %"
+set xlabel 'Sample Time (seconds)'
+set yrange [*:*]
+set xrange [0:4] #Set time -+ small amount
+set title "CPU % Utilization"
+unset xtics
+set xtics
+plot \\
+'dummy' using 2:3 title '1,example1' with linespoints,\\
+'dummy' using 8:9 title '2,example2' with linespoints,\\
+'dummy' using 14:15 title '3,example3' with linespoints
+
+set zlabel "Time\\n(seconds)" offset 2,0,0
+set ylabel 'Sample Time (seconds)'
+set xlabel 'PID'
+set xrange [0:4] # number of pids +-1
+set xtics ("1" 1, "2" 2, "3" 3)
+set title "CPU User/Kernel Time"
+splot \\
+'dummy' using 1:2:5 title '1,example1,user' with linespoints,\\
+'dummy' using 1:2:6 title '1,example1,kernel' with linespoints,\\
+'dummy' using 7:8:11 title '2,example2,user' with linespoints,\\
+'dummy' using 7:8:12 title '2,example2,kernel' with linespoints,\\
+'dummy' using 13:14:17 title '3,example3,user' with linespoints,\\
+'dummy' using 13:14:18 title '3,example3,kernel' with linespoints
+
+set ylabel "Time\\n(seconds)"
+set xlabel 'Sample Time (seconds)'
+set yrange [*:*]
+set xrange [0:4] #Set time -+ small amount
+set title "CPU User/Kernel Time"
+unset xtics
+set xtics
+plot \\
+'dummy' using 2:5 title '1,example1,user' with linespoints,\\
+'dummy' using 2:6 title '1,example1,kernel' with linespoints,\\
+'dummy' using 8:11 title '2,example2,user' with linespoints,\\
+'dummy' using 8:12 title '2,example2,kernel' with linespoints,\\
+'dummy' using 14:17 title '3,example3,user' with linespoints,\\
+'dummy' using 14:18 title '3,example3,kernel' with linespoints
+
+set ylabel "Number of CPUs"
+set yrange [.5:4.5] #num cpus +.5
+set title "Allowed number of CPUs"
+plot \\
+'dummy' using 2:4 title '1,example1' with linespoints,\\
+'dummy' using 8:10 title '2,example2' with linespoints,\\
+'dummy' using 14:16 title '3,example3' with linespoints'''
+.replace('dummy', datamatrix_file.name).split()))
+        assert not diff, diff
+
+        write_matrix(m, datamatrix_file)
+        create_chart(mp,'/tmp/cpuchart.png', 'png size 2048,1300')
 
 
 if __name__ == '__main__':

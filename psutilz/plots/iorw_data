@@ -1,4 +1,17 @@
-1 1 165 2 1 322 3 1 123 4 1 653 1 0 1 1 1 2 1 3 1 4 1 2
-1 2 345 2 2 455 3 2 652 4 2 555 2 0 2 2 2 3 2 3 2 5 2 6
-1 3 544 2 3 566 3 3 655 4 3 569 3 0 3 1 3 0 3 3 3 5 3 1
+#column data explanation
+#1,4, process 1 io read/write xtics
+#7,10 process 2 io read/write xtics
+#2,5,8,11 sample times
+#3,6 process 1 io read and io write
+#9,12 process 2 io read and write
+#13,15,17 process 1,2,3 xtics for io priority class
+#14,16,18 process 1,2,3 io priority class
+#19,21,23 process 1,2,3 xtics for io nice priority level'
+#20,22,24 process 1,2,3 io priority level
+
+1 1 165 2 1 322 3 1 123 4 1 653      1 0 1 1 1 2 1 3 1 4 1 2
+1 2 345 2 2 455 3 2 652 4 2 555      2 0 2 2 2 3 2 3 2 5 2 6
+1 3 544 2 3 566 3 3 655 4 3 569      3 0 3 1 3 0 3 3 3 5 3 1
+
+
 

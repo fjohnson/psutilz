@@ -314,6 +314,18 @@ def pid_list(proc_stat_objs):
     '''Return a list of pids derived from a list of proc stat objects'''
     return map(lambda p: p.pid, proc_stat_objs)
 
+def create_iorw_chart(proc_stat_objs, data_file):
+    mp = MultiPlot("2,2", 'IO R/W Utilization')
+    ticks = create_ticks(proc_stat_objs)
+
+    iorw3d = mp.create_plot()
+    iorw3d.title = '"IO Read/Write"'
+    iorw3d.ylabel = '"Sample Time (seconds)"'
+    iorw3d.zlabel = '"IO (Bytes)"'
+    iorw3d.xlabel = "'PID'"
+    iorw3d.xrange = "'[0:5]'"
+    iorw3d.xtics = ticks
+
 def create_cpu_util_chart(proc_stat_objs, data_file):
     '''create the cpu utilization chart
     maps cpu utilization across processes and system time, kernel/user time

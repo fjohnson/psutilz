@@ -224,7 +224,7 @@ def matrix(proc_stat_objs,items,additional_data=[]):
     '''Convert data collected into a matrix readable by gnuplot'''
 
     accumulator = []
-    nrows = get_num_rows(proc_stat_objs,items,additional_data)
+    nrows = get_num_rows(proc_stat_objs,additional_data)
 
     for k,ps in enumerate(proc_stat_objs):
         accumulator.append(list([k+1]*nrows)) #add xtics
@@ -253,15 +253,12 @@ def matrix_from_lists(lists,nrows):
 
     return m
 
-def get_num_rows(psobjs,keys,additional=[]):
+def get_num_rows(psobjs,additional=[]):
     '''Return the max number of rows this matrix should have
 
     numrows = maximum number of collected time points of any process'''
 
-    maxd = -1
-    for p in psobjs:
-        for k in keys:
-            maxd = max(maxd,len(p[k]))
+    maxd = get_max_num_sample_time(psobjs)
 
     for k in additional:
         maxd = max(maxd,len(k))
@@ -297,6 +294,17 @@ def create_chart(plot, img_filename, terminal):
         raise PsmonException('Warning: gnuplot "%s" returned code %d\nstdout:%s\nstderr:%s'
                              %(plot.title,p.returncode, stdout, stderr))
 
+def get_max_num_sample_time(proc_stat_objs):
+    '''Return the maximum number of samples collected of any process'''
+    return reduce(lambda last,p: max(last, len(p['sample_time'])), proc_stat_objs[1:],
+                  len(proc_stat_objs[0]['sample_time']))
+
+def get_max_cpu_affinity(proc_stat_objs):
+    '''Return the maximum available cpus that any process at any point in time was allowed to use'''
+    maxc = -1
+    for p in proc_stat_objs:
+        maxc = max(maxc, max(p['cpu_affinity']))
+    return maxc
 
 def create_ticks(proc_stat_objs):
     '''Create the tics used for axis'''
@@ -314,6 +322,67 @@ def pid_list(proc_stat_objs):
     '''Return a list of pids derived from a list of proc stat objects'''
     return map(lambda p: p.pid, proc_stat_objs)
 
+def create_memory_chart(proc_stat_objs, data_file):
+    mp = MultiPlot("2,2", 'Memory Utilization %')
+    ticks = create_ticks(proc_stat_objs)
+    
+    mem_util3d = mp.create_plot()
+    mem_util3d.title = "'Memory Utilization %'"
+    mem_util3d.ylabel = '"Sample Time (seconds)"'
+    mem_util3d.zlabel = '"Mem %" offset -1,0,0'
+    mem_util3d.xlabel = "'PID'"
+    mem_util3d.xrange = '[0:%d]' % (len(proc_stat_objs) + 1)
+    mem_util3d.xtics = ticks
+    mem_util3d.is_3d = True
+
+    i = 1
+    for p in proc_stat_objs:
+        mem_util3d.add_datapoint("'%s' using %d:%d:%d title '%s,%s' with linespoints" %
+                            (data_file.name, i,i+1,i+2, p.pid, p.name))
+        i += 5
+    
+    mem_util2d = mp.create_plot()
+    mem_util2d.title = "'Memory Utilization %'"
+    mem_util2d.xlabel = "'Sample Time (seconds)'"
+    mem_util2d.xrange = '[0:%d]' % (len(proc_stat_objs) + 1)
+    mem_util2d.unset_xtics = True
+    mem_util2d.set_xtics = True
+    
+    i = 2
+    for p in proc_stat_objs:
+        mem_util2d.add_datapoint("'%s' using %d:%d title '%s,%s' with linespoints" %
+                            (data_file.name, i,i+1, p.pid, p.name))
+        i += 5
+        
+    rss = mp.create_plot()
+    rss.title = '"Memory RSS"'
+    rss.ylabel = '"Sample Time (seconds)"'
+    rss.zlabel = '"RSS\\n(bytes)" offset -2,0,0'
+    rss.xlabel = "'PID'"
+    rss.xrange = '[0:%d]' % (len(proc_stat_objs) + 1)
+    rss.xtics = ticks
+    rss.is_3d = True
+
+    i = 1
+    for p in proc_stat_objs:
+        rss.add_datapoint("'%s' using %d:%d:%d title '%s,%s' with linespoints" %
+                            (data_file.name, i,i+1,i+3, p.pid, p.name))
+        i += 5
+
+    vm = mp.create_plot()
+    vm.title = '"Memory VM"'
+    vm.zlabel = '"VM\\n(bytes)" offset -2,0,0'
+    vm.is_3d = True
+
+    i = 1
+    for p in proc_stat_objs:
+        vm.add_datapoint("'%s' using %d:%d:%d title '%s,%s' with linespoints" %
+                            (data_file.name, i,i+1,i+4, p.pid, p.name))
+        i += 5
+
+    m = matrix(proc_stat_objs, ['sample_time', 'mem_percent', 'rss', 'vms'])
+    return mp,m
+
 def create_iorw_chart(proc_stat_objs, data_file):
     mp = MultiPlot("2,2", 'IO R/W Utilization')
     ticks = create_ticks(proc_stat_objs)
@@ -321,10 +390,66 @@ def create_iorw_chart(proc_stat_objs, data_file):
     iorw3d = mp.create_plot()
     iorw3d.title = '"IO Read/Write"'
     iorw3d.ylabel = '"Sample Time (seconds)"'
-    iorw3d.zlabel = '"IO (Bytes)"'
+    iorw3d.zlabel = '"IO (Bytes)" offset -2,0,0'
     iorw3d.xlabel = "'PID'"
-    iorw3d.xrange = "'[0:5]'"
+    iorw3d.xrange = "[0:%d]" % len(proc_stat_objs)
     iorw3d.xtics = ticks
+    iorw3d.is_3d = True
+
+    i = 1
+    for p in proc_stat_objs:
+        iorw3d.add_datapoint("'%s' using %d:%d:%d title '%s,%s,read' with linespoints" %
+                            (data_file.name, i,i+1,i+2, p.pid, p.name))
+        iorw3d.add_datapoint("'%s' using %d:%d:%d title '%s,%s,write' with linespoints" %
+                            (data_file.name, i,i+1,i+3, p.pid, p.name))
+        i += 6
+
+    ionpc = mp.create_plot()
+    ionpc.title = '"IO Nice Priority Class"'
+    ionpc.ylabel = '"Priority Class"'
+    ionpc.yrange = '[-.5:3.5]'
+    ionpc.ytics = '("None" 0, "Real Time" 1,"Best Effort" 2,"Idle" 3)'
+    ionpc.xlabel = "'Sample Time (seconds)'"
+    ionpc.xrange = '[0:%d]' % sample_time_max
+    ionpc.unset_xtics = True
+    ionpc.set_xtics = True
+
+    i = 2
+    for p in proc_stat_objs:
+        ionpc.add_datapoint("'%s' using %d:%d title '%s,%s' with steps" %
+                            (data_file.name, i,i+3, p.pid, p.name))
+        i += 6
+
+    iorw2d = mp.create_plot()
+    iorw2d.title =  '"IO Read/Write"'
+    iorw2d.xlabel = "'Sample Time (seconds)'"
+    iorw2d.ylabel = '"IO (Bytes)"'
+    iorw2d.yrange = '[*:*]'
+    iorw2d.unset_ytics = True
+    iorw2d.set_ytics = True
+
+    i = 2
+    for p in proc_stat_objs:
+        iorw2d.add_datapoint("'%s' using %d:%d title '%s,%s,read' with linespoints" %
+                            (data_file.name, i,i+1, p.pid, p.name))
+        iorw2d.add_datapoint("'%s' using %d:%d title '%s,%s,write' with linespoints" %
+                            (data_file.name, i,i+2, p.pid, p.name))
+        i += 6
+
+    ionpl = mp.create_plot()
+    ionpl.title =  '"IO Nice Priority Level"'
+    ionpl.ylabel = '"Priority Level"'
+    ionpl.yrange = '[-.5:7.5]'
+    ionpl.xlabel = "'Sample Time (seconds)'"
+
+    i = 2
+    for p in proc_stat_objs:
+        ionpl.add_datapoint("'%s' using %d:%d title '%s,%s' with steps" %
+                            (data_file.name, i,i+4, p.pid, p.name))
+        i += 6
+
+    m = matrix(proc_stat_objs, ['sample_time', 'io_readbytes', 'io_writebytes', 'io_nice_class', 'io_nice_priority'])
+    return mp,m
 
 def create_cpu_util_chart(proc_stat_objs, data_file):
     '''create the cpu utilization chart
@@ -336,14 +461,15 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
 
     mp = MultiPlot("3,2",'CPU Utilization')
     ticks = create_ticks(proc_stat_objs)
+
     #create 3d cpu utilization plot
 
     cpu3d = mp.create_plot()
     cpu3d.title = '"CPU % Utilization"'
-    cpu3d.zlabel = '"CPU %" offset 3,0,0'
+    cpu3d.zlabel = '"CPU %" offset -1,0,0'
     cpu3d.xlabel = "'PID'"
     cpu3d.ylabel = "'Sample Time (seconds)'"
-    cpu3d.xrange = '[0:4] # number of pids +1'
+    cpu3d.xrange = '[0:%d] # number of pids +1' % len(proc_stat_objs)
     cpu3d.xtics = ticks
 
     cpu3d.is_3d = True
@@ -358,7 +484,7 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
     cpu2d = mp.create_plot()
     cpu2d.title = '"CPU % Utilization"'
     cpu2d.xlabel = "'Sample Time (seconds)'"
-    cpu2d.xrange = "[0:4] #Set time -+ small amount"
+    cpu2d.xrange = "[0:%d] #Set time -+ small amount" % sample_time_max
     cpu2d.ylabel = '"CPU %"'
     cpu2d.yrange = '[*:*]'
     cpu2d.unset_xtics = True
@@ -375,9 +501,9 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
     ku3d = mp.create_plot()
     ku3d.title = '"CPU User/Kernel Time"'
     ku3d.ylabel = "'Sample Time (seconds)'"
-    ku3d.zlabel = '"Time\\n(seconds)" offset 2,0,0'
+    ku3d.zlabel = '"Time\\n(seconds)" offset -2,0,0'
     ku3d.xlabel = "'PID'"
-    ku3d.xrange = '[0:4] # number of pids +-1'
+    ku3d.xrange = '[0:%d] # number of pids +-1' % len(proc_stat_objs)
     ku3d.xtics = ticks
     ku3d.is_3d = True
 
@@ -394,7 +520,7 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
     ku2d = mp.create_plot()
     ku2d.title = '"CPU User/Kernel Time"'
     ku2d.xlabel = "'Sample Time (seconds)'"
-    ku2d.xrange = "[0:4] #Set time -+ small amount"
+    ku2d.xrange = "[0:%d] #Set time -+ small amount" % sample_time_max
     ku2d.ylabel = '"Time\\n(seconds)"'
     ku2d.yrange = '[*:*]'
     ku2d.unset_xtics = True
@@ -412,7 +538,11 @@ def create_cpu_util_chart(proc_stat_objs, data_file):
     allowed_cpu = mp.create_plot()
     allowed_cpu.title = '"Allowed number of CPUs"'
     allowed_cpu.ylabel = '"Number of CPUs"'
-    allowed_cpu.yrange = '[.5:4.5] #num cpus +.5'
+    max_cpus = get_max_cpu_affinity(proc_stat_objs)
+    if max_cpus == 0:
+        allowed_cpu.yrange = '[0:0]'
+    else:
+        allowed_cpu.yrange = '[.5:%f] #num cpus +.5' % (max_cpus + .5)
 
     i = 2
     for ps in proc_stat_objs:
@@ -445,6 +575,13 @@ def create_charts(proc_stat_objs):
     else:
         rows = len(combined_mp.plots)
     combined_mp.layout = str(rows)+',2'
+
+    global sample_time_max
+    #set the maximum value for the sample time axis
+    sample_time_max =  get_max_num_sample_time(proc_stat_objs)
+    #add 5% to the xrange or 1 sec
+    sample_time_max = max(1,sample_time_max * .05) + sample_time_max
+
     create_chart(combined_mp, 'mega.png','png size 2048')
 
 
@@ -595,8 +732,8 @@ if __name__ == '__main__':
         temp_dead_list=[]
         for pstatobj in _proc_list:
             try:
-                get_stats(pstatobj) #populate pstat objects
                 pstatobj.statmap['sample_time'].append(time.time()-_stime)
+                get_stats(pstatobj) #populate pstat objects
             except psutil.NoSuchProcess:
                 temp_dead_list.append(pstatobj)
 

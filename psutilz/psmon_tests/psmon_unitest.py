@@ -2,13 +2,16 @@ __author__ = 'fjohnson'
 
 import unittest
 import difflib
-from psutilz.psmon import Procstat, create_cpu_util_chart, matrix, create_chart, write_matrix
+import psutilz
+from psutilz.psmon import Procstat, create_cpu_util_chart, matrix, create_chart, write_matrix, get_max_num_sample_time,\
+    create_iorw_chart, create_memory_chart
+
 from tempfile import NamedTemporaryFile
 
 class MatrixTests(unittest.TestCase):
     '''Tests for determining if data matrix are being created correctly from Procstat instances'''
 
-    def _test_matrix_create(self):
+    def test_matrix_create(self):
         '''simple instance'''
 
         def dummyobj():pass
@@ -28,7 +31,7 @@ class MatrixTests(unittest.TestCase):
                      ['1', '2', '200', '20', '2', '5', '500', '50', '8', '80'],
                      ['1', '3', '300', '30', '2', '6', '600', '60', '9', '90']], m
 
-    def _test_matrix_create2(self):
+    def test_matrix_create2(self):
         '''Instance where a certain column has missing data.
         This would happen for instance if a process died before stats could be gathered'''
 
@@ -49,18 +52,182 @@ class MatrixTests(unittest.TestCase):
                      ['1', '2', '200', '20', '2', '5', '500', '50', '8', ''],
                      ['1', '3',    '', '30', '2',  '',    '',   '', '9', '']],m
 
-class ChartCreationTests(unittest.TestCase):
-    def test_cpu_chart(self):
-        '''cpu chart creation test'''
 
-        class processp:
+class ChartCreationTests(unittest.TestCase):
+
+    class processp:
             def __init__(self, pid, name):
                 self.pid = pid
                 self.name = name
 
-        p1 = Procstat(processp(1,'example1'))
-        p2 = Procstat(processp(2,'example2'))
-        p3 = Procstat(processp(3,'example3'))
+    def setUp(self):
+        self.datamatrix_file = NamedTemporaryFile()
+
+    def tearDown(self):
+        self.datamatrix_file.close()
+
+    def test_mem_chart(self):
+        p1 = Procstat(ChartCreationTests.processp(1,'example1'))
+        p2 = Procstat(ChartCreationTests.processp(2,'example2'))
+        p3 = Procstat(ChartCreationTests.processp(3,'example3'))
+
+        p1.statmap['sample_time'] = [1,2,3]
+        p1.statmap['mem_percent'] = [30,40,50]
+        p1.statmap['rss'] = [800,880,700]
+        p1.statmap['vms'] = [900,990,980]
+
+        p2.statmap['sample_time'] = [1,2,3]
+        p2.statmap['mem_percent'] = [15,8,21]
+        p2.statmap['rss'] = [400,443,200]
+        p2.statmap['vms'] = [800,890,890]
+
+        p3.statmap['sample_time'] = [1,2,3]
+        p3.statmap['mem_percent'] = [21,24,23]
+        p3.statmap['rss'] = [300,400,450]
+        p3.statmap['vms'] = [500,500,500]
+
+        sample_time_max =  get_max_num_sample_time([p1,p2,p3])
+        psutilz.psmon.sample_time_max = max(1,sample_time_max * .05) + sample_time_max
+        mp, m = create_memory_chart([p1,p2, p3], self.datamatrix_file)
+        assert m == [['1', '1', '30', '800', '900', '2', '1', '15', '400', '800', '3', '1', '21', '300', '500'],
+                     ['1', '2', '40', '880', '990', '2', '2', '8',  '443', '890', '3', '2', '24', '400', '500'],
+                     ['1', '3', '50', '700', '980', '2', '3', '21', '200', '890', '3', '3', '23', '450', '500']], m
+        diff = ''.join(difflib.unified_diff(str(mp).split(),
+'''
+set multiplot layout 2,2
+
+set title "Memory Utilization %"
+
+set zlabel "Mem %" offset -1,0,0
+set ylabel "Sample Time (seconds)"
+set xlabel 'PID'
+set xrange [0:4]
+set xtics ("1" 1, "2" 2, "3" 3)
+set title 'Memory Utilization %'
+splot \\
+'dummy' using 1:2:3 title '1,example1' with linespoints,\\
+'dummy' using 6:7:8 title '2,example2' with linespoints,\\
+'dummy' using 11:12:13 title '3,example3' with linespoints
+
+set xlabel 'Sample Time (seconds)'
+set xrange [0:4]
+set title 'Memory Utilization %'
+unset xtics
+set xtics
+plot \\
+'dummy' using 2:3 title '1,example1' with linespoints,\\
+'dummy' using 7:8 title '2,example2' with linespoints,\\
+'dummy' using 12:13 title '3,example3' with linespoints
+
+set zlabel "RSS\\n(bytes)" offset -2,0,0
+set ylabel "Sample Time (seconds)"
+set xlabel 'PID'
+set xrange [0:4]
+set xtics ("1" 1, "2" 2, "3" 3)
+set title "Memory RSS"
+splot \\
+'dummy' using 1:2:4 title '1,example1' with linespoints,\\
+'dummy' using 6:7:9 title '2,example2' with linespoints,\\
+'dummy' using 11:12:14 title '3,example3' with linespoints
+
+set zlabel "VM\\n(bytes)" offset -2,0,0
+set title "Memory VM"
+splot \\
+'dummy' using 1:2:5 title '1,example1' with linespoints,\\
+'dummy' using 6:7:10 title '2,example2' with linespoints,\\
+'dummy' using 11:12:15 title '3,example3' with linespoints'''
+.replace('dummy', self.datamatrix_file.name).split()))
+
+        assert not diff, diff
+
+        write_matrix(m, self.datamatrix_file)
+        create_chart(mp,'/tmp/memchart.svg', 'svg size 2048,1536 mouse standalone')
+        
+    def test_io_chart(self):
+        p1 = Procstat(ChartCreationTests.processp(1,'example1'))
+        p2 = Procstat(ChartCreationTests.processp(2,'example2'))
+
+        p1.statmap['sample_time'] = [1,2,3]
+        p1.statmap['io_readbytes'] = [200,300,400]
+        p1.statmap['io_writebytes'] = [416,765,800]
+        p1.statmap['io_nice_class'] = [0,3,3]
+        p1.statmap['io_nice_priority'] = [2,6,1]
+
+        p2.statmap['sample_time'] = [1,2,3]
+        p2.statmap['io_readbytes'] = [100,150,390]
+        p2.statmap['io_writebytes'] = [215,750]
+        p2.statmap['io_nice_class'] = [1,2]
+        p2.statmap['io_nice_priority'] = [3,5]
+
+        sample_time_max =  get_max_num_sample_time([p1,p2])
+        psutilz.psmon.sample_time_max = max(1,sample_time_max * .05) + sample_time_max
+        mp, m = create_iorw_chart([p1,p2], self.datamatrix_file)
+        assert m == [['1', '1', '200', '416', '0', '2', '2', '1', '100', '215', '1', '3'],
+                     ['1', '2', '300', '765', '3', '6', '2', '2', '150', '750', '2', '5'],
+                     ['1', '3', '400', '800', '3', '1', '2', '3', '390', '', '', '']], m
+        #open('/tmp/out','w').write(str(mp))
+        diff = ''.join(difflib.unified_diff(str(mp).split(),
+'''
+set multiplot layout 2,2
+
+set title "IO R/W Utilization"
+
+set zlabel "IO (Bytes)" offset -2,0,0
+set ylabel "Sample Time (seconds)"
+set xlabel 'PID'
+set xrange [0:2]
+set xtics ("1" 1, "2" 2)
+set title "IO Read/Write"
+splot \\
+'dummy' using 1:2:3 title '1,example1,read' with linespoints,\\
+'dummy' using 1:2:4 title '1,example1,write' with linespoints,\\
+'dummy' using 7:8:9 title '2,example2,read' with linespoints,\\
+'dummy' using 7:8:10 title '2,example2,write' with linespoints
+
+set ylabel "Priority Class"
+set xlabel 'Sample Time (seconds)'
+set yrange [-.5:3.5]
+set xrange [0:4]
+set ytics ("None" 0, "Real Time" 1,"Best Effort" 2,"Idle" 3)
+set title "IO Nice Priority Class"
+unset xtics
+set xtics
+plot \\
+'dummy' using 2:5 title '1,example1' with steps,\\
+'dummy' using 8:11 title '2,example2' with steps
+
+set ylabel "IO (Bytes)"
+set xlabel 'Sample Time (seconds)'
+set yrange [*:*]
+set title "IO Read/Write"
+unset ytics
+set ytics
+plot \\
+'dummy' using 2:3 title '1,example1,read' with linespoints,\\
+'dummy' using 2:4 title '1,example1,write' with linespoints,\\
+'dummy' using 8:9 title '2,example2,read' with linespoints,\\
+'dummy' using 8:10 title '2,example2,write' with linespoints
+
+set ylabel "Priority Level"
+set xlabel 'Sample Time (seconds)'
+set yrange [-.5:7.5]
+set title "IO Nice Priority Level"
+plot \\
+'dummy' using 2:6 title '1,example1' with steps,\\
+'dummy' using 8:12 title '2,example2' with steps'''
+.replace('dummy', self.datamatrix_file.name).split()))
+        assert not diff, diff
+
+        write_matrix(m, self.datamatrix_file)
+        create_chart(mp,'/tmp/iochart.svg', 'svg size 2048,1300 mouse standalone')
+
+    def test_cpu_chart(self):
+        '''cpu chart creation test'''
+
+
+        p1 = Procstat(ChartCreationTests.processp(1,'example1'))
+        p2 = Procstat(ChartCreationTests.processp(2,'example2'))
+        p3 = Procstat(ChartCreationTests.processp(3,'example3'))
         p1.statmap['sample_time'] = [1,2,3]
         p1.statmap['cpu_percent'] = [30]
         p1.statmap['cpu_affinity'] = [4,4,4]
@@ -79,11 +246,12 @@ class ChartCreationTests(unittest.TestCase):
         p3.statmap['cpu_user'] = [23,54,70]
         p3.statmap['cpu_kernel'] = [43,65,65]
 
-        datamatrix_file = NamedTemporaryFile()
-        mp, m = create_cpu_util_chart([p1,p2,p3], datamatrix_file)
+        sample_time_max = get_max_num_sample_time([p1,p2,p3])
+        psutilz.psmon.sample_time_max = max(1,sample_time_max * .05) + sample_time_max
+        mp, m = create_cpu_util_chart([p1,p2,p3], self.datamatrix_file)
         assert m == [['1', '1', '30', '4', '50', '60', '2', '1', '15', '3', '60', '78', '3', '1', '16', '3', '23', '43'],
-                     ['1', '2', '', '4', '55', '65', '2', '2', '7', '4', '65', '89', '3', '2', '89', '3', '54', '65'],
-                     ['1', '3', '', '4', '60', '70', '2', '3', '12', '4', '78', '105', '3', '3', '88', '3', '70', '65']], m
+                     ['1', '2', '',   '4', '55', '65', '2', '2', '7',  '4', '65', '89', '3', '2', '89', '3', '54', '65'],
+                     ['1', '3', '',   '4', '60', '70', '2', '3', '12', '4', '78', '105','3', '3', '88', '3', '70', '65']], m
         #open('/tmp/out','w').write(str(mp))
         diff = ''.join(difflib.unified_diff(str(mp).split(),
 '''
@@ -91,10 +259,10 @@ set multiplot layout 3,2
 
 set title "CPU Utilization"
 
-set zlabel "CPU %" offset 3,0,0
+set zlabel "CPU %" offset -1,0,0
 set ylabel 'Sample Time (seconds)'
 set xlabel 'PID'
-set xrange [0:4] # number of pids +1
+set xrange [0:3] # number of pids +1
 set xtics ("1" 1, "2" 2, "3" 3)
 set title "CPU % Utilization"
 splot \\
@@ -114,10 +282,10 @@ plot \\
 'dummy' using 8:9 title '2,example2' with linespoints,\\
 'dummy' using 14:15 title '3,example3' with linespoints
 
-set zlabel "Time\\n(seconds)" offset 2,0,0
+set zlabel "Time\\n(seconds)" offset -2,0,0
 set ylabel 'Sample Time (seconds)'
 set xlabel 'PID'
-set xrange [0:4] # number of pids +-1
+set xrange [0:3] # number of pids +-1
 set xtics ("1" 1, "2" 2, "3" 3)
 set title "CPU User/Kernel Time"
 splot \\
@@ -144,17 +312,17 @@ plot \\
 'dummy' using 14:18 title '3,example3,kernel' with linespoints
 
 set ylabel "Number of CPUs"
-set yrange [.5:4.5] #num cpus +.5
+set yrange [.5:4.500000] #num cpus +.5
 set title "Allowed number of CPUs"
 plot \\
 'dummy' using 2:4 title '1,example1' with linespoints,\\
 'dummy' using 8:10 title '2,example2' with linespoints,\\
 'dummy' using 14:16 title '3,example3' with linespoints'''
-.replace('dummy', datamatrix_file.name).split()))
+.replace('dummy', self.datamatrix_file.name).split()))
         assert not diff, diff
 
-        write_matrix(m, datamatrix_file)
-        create_chart(mp,'/tmp/cpuchart.png', 'png size 2048,1300')
+        write_matrix(m, self.datamatrix_file)
+        create_chart(mp,'/tmp/cpuchart.svg', 'svg size 2048,1300 mouse standalone')
 
 
 if __name__ == '__main__':

@@ -4,7 +4,7 @@ import unittest
 import difflib
 import psutilz
 from psutilz.psmon import Procstat, create_cpu_util_chart, matrix, create_chart, write_matrix, get_max_num_sample_time,\
-    create_iorw_chart, create_memory_chart
+    create_iorw_chart, create_memory_chart, create_process_status_chart
 
 from tempfile import NamedTemporaryFile
 
@@ -65,6 +65,58 @@ class ChartCreationTests(unittest.TestCase):
 
     def tearDown(self):
         self.datamatrix_file.close()
+
+    def test_system_times_chart(self):
+        stats = ["user", "system", "idle", "nice", "io wait", "irq", "soft irq", "sample_time"]
+        statsm = [[i+1]*4 for i in xrange(len(stats)-1)]
+        statsm.append([1,2,3,4])
+        sys_stats = dict(zip(stats,statsm))
+        assert False
+
+    def test_process_status(self):
+        p1 = Procstat(ChartCreationTests.processp(1,'example1'))
+        p2 = Procstat(ChartCreationTests.processp(2,'example2'))
+
+        p1.statmap['sample_time'] = [1,2,3]
+        p1.statmap['status'] = [3,3,4]
+
+        p2.statmap['sample_time'] = [1,2,3]
+        p2.statmap['status'] = [2,2,5]
+
+        sample_time_max =  get_max_num_sample_time([p1,p2])
+        psutilz.psmon.sample_time_max = max(1,sample_time_max * .05) + sample_time_max
+        mp, m = create_process_status_chart([p1,p2], self.datamatrix_file)
+        assert m == [['1', '1', '3', '2', '1', '2'],
+                     ['1', '2', '3', '2', '2', '2'],
+                     ['1', '3', '4', '2', '3', '5']], m
+        diff = ''.join(difflib.unified_diff(str(mp).split(),
+'''set multiplot layout 2,1
+
+set title "Process Status Over Time"
+
+set ylabel "Sample Time (seconds)"
+set xlabel 'PID'
+set xrange [0:3]
+set ztics ("running" 0, "sleeping" 1, "disk sleep" 2, "stopped" 3, "tracing stop" 4, "zombie" 5,           "dead" 6, "wake kill" 7, "waking" 8, "idle" 9, "locked" 10, "waiting" 11)
+set xtics ("1" 1, "2" 2)
+splot \\
+'dummy' using 1:2:3 title '1,example1' with step,\\
+'dummy' using 4:5:6 title '2,example2' with step
+
+set ylabel "Status"
+set yrange [-.5:5.5]
+set xrange [0:4]
+set ytics ("running" 0, "sleeping" 1, "disk sleep" 2, "stopped" 3, "tracing stop" 4, "zombie" 5,           "dead" 6, "wake kill" 7, "waking" 8, "idle" 9, "locked" 10, "waiting" 11)
+unset xtics
+set xtics
+plot \\
+'dummy' using 2:3 title '1,example1' with points,\\
+'dummy' using 5:6 title '2,example2' with points'''
+.replace('dummy', self.datamatrix_file.name).split()))
+        assert not diff, diff
+
+        write_matrix(m, self.datamatrix_file)
+        create_chart(mp,'/tmp/procstat.svg', 'svg size 1024,1536 mouse standalone')
 
     def test_mem_chart(self):
         p1 = Procstat(ChartCreationTests.processp(1,'example1'))

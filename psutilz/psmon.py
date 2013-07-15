@@ -322,13 +322,100 @@ def pid_list(proc_stat_objs):
     '''Return a list of pids derived from a list of proc stat objects'''
     return map(lambda p: p.pid, proc_stat_objs)
 
+def create_systems_times_chart(sys_stats, data_file):
+    mp = MultiPlot("2,1", 'System CPU Activity Times')
+    st_col = 15 #Sample time column
+    stats = ["user", "system", "idle", "nice", "io wait", "irq", "soft irq"]
+
+    sys3d = mp.create_plot()
+    sys3d.zlabel = '"Time\n (seconds)"'
+    sys3d.xlabel = "'Activity'"
+    sys3d.xrange = '[0:8] #number of cpu stats +-1'
+    sys3d.ylabel = '"Sample Time (seconds)"'
+    sys3d.xtics = '"user" 1, "system" 2, "idle" 3, "nice" 4, "io wait" 5, "irq" 6, "soft irq" 7)'
+    sys3d.is_3d = True
+
+    i = 1
+    for stat in stats:
+        sys3d.add_datapoint("'%s' using %d:%d:%d '%s' with linespoints" %
+                            (data_file.name, i,st_col,i+1, stat))
+        i += 2
+
+    sys2d = mp.create_plot()
+    sys2d.xlabel = '"Sample Time (seconds)'""
+    sys2d.xrange = '[0:%d]' % sample_time_max
+    sys2d.ylabel = '"Time Spent (seconds)"'
+    sys2d.yrange = '[0:%d]' % sample_time_max
+    sys2d.unset_xtics = True
+    sys2d.set_xtics = True
+
+    i = 2
+    for stat in stats:
+        sys2d.add_datapoint("'%s' using %d:%d '%s' with linespoints" %
+                            (data_file.name, st_col, i, stat))
+        i += 2
+
+    #matrix dims are rows,cols = len(sys_stats['sample_time']), len(stats)*2+1
+    sample_times = sys_stats.pop('sample_time')
+    rows = len(sample_times)
+    cols = len(stats) * 2 + 1
+    m = []
+    for r in xrange(rows):
+        m.append(list(['']*cols))
+        for c,stat in enumerate(sys_stats):
+            m[r][c*2] = c+1 #system stat xtic
+            stat_array = sys_stats[stat]
+            if r < len(stat_array):
+                m[r][c*2+1] = stat_array[r]
+        m[r][c+2] = sample_times[r]
+
+    sys_stats['sample_time'] = sample_times
+    return mp,m
+
+def create_process_status_chart(proc_stat_objs, data_file):
+    mp = MultiPlot("2,1", 'Process Status Over Time')
+    ticks = create_ticks(proc_stat_objs)
+
+    pstat3d = mp.create_plot()
+    pstat3d.xlabel = "'PID'"
+    pstat3d.xrange = '[0:%d]' % (len(proc_stat_objs) + 1)
+    pstat3d.xtics = ticks
+    pstat3d.ylabel = '"Sample Time (seconds)"'
+    pstat3d.ztics = '("running" 0, "sleeping" 1, "disk sleep" 2, "stopped" 3, "tracing stop" 4, "zombie" 5,\
+           "dead" 6, "wake kill" 7, "waking" 8, "idle" 9, "locked" 10, "waiting" 11)'
+    pstat3d.is_3d = True
+
+    i = 1
+    for p in proc_stat_objs:
+        pstat3d.add_datapoint("'%s' using %d:%d:%d title '%s,%s' with step" %
+                            (data_file.name, i,i+1,i+2, p.pid, p.name))
+        i += 3
+
+    pstat2d = mp.create_plot()
+    pstat2d.xrange = '[0:%d]' % sample_time_max
+    pstat2d.unset_xtics = True
+    pstat2d.set_xtics = True
+    pstat2d.ylabel = '"Status"'
+    pstat2d.yrange = '[-.5:5.5]'
+    pstat2d.ytics = '("running" 0, "sleeping" 1, "disk sleep" 2, "stopped" 3, "tracing stop" 4, "zombie" 5,\
+           "dead" 6, "wake kill" 7, "waking" 8, "idle" 9, "locked" 10, "waiting" 11)'
+
+    i = 2
+    for p in proc_stat_objs:
+        pstat2d.add_datapoint("'%s' using %d:%d title '%s,%s' with points" %
+                            (data_file.name, i, i+1, p.pid, p.name))
+        i += 3
+
+    m = matrix(proc_stat_objs, ['sample_time', 'status'])
+    return mp,m
+
 def create_memory_chart(proc_stat_objs, data_file):
     mp = MultiPlot("2,2", 'Memory Utilization %')
     ticks = create_ticks(proc_stat_objs)
     
     mem_util3d = mp.create_plot()
     mem_util3d.title = "'Memory Utilization %'"
-    mem_util3d.ylabel = '"Sample Time (seconds)"'
+    mem_util3d.ylabel = '"Sample Time (second)"'
     mem_util3d.zlabel = '"Mem %" offset -1,0,0'
     mem_util3d.xlabel = "'PID'"
     mem_util3d.xrange = '[0:%d]' % (len(proc_stat_objs) + 1)
@@ -724,10 +811,10 @@ if __name__ == '__main__':
 
         #Collect system stats in a different structure
         ct=psutil.cpu_times()
+        _sys_stats['sample_time'].append(time.time()-_stime)
         for i in cpu_time_modes:
             _sys_stats[i].append(ct.__getattribute__(i.partition('system_cpu_')[2]))
         _sys_stats['system_cpu_percent'].append(psutil.cpu_percent(sample_interval))
-        _sys_stats['sample_time'].append(time.time()-_stime)
 
         temp_dead_list=[]
         for pstatobj in _proc_list:

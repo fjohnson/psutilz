@@ -1,5 +1,12 @@
-1 1 2 2 3 3 4 4 5 5 6 6 7 7 1
-1 1 2 2 3 3 4 4 5 5 6 6 7 7 2
-1 1 2 2 3 3 4 4 5 5 6 6 7 7 3
-1 1 2 2 3 3 4 4 5 5 6 6 7 7 4
+#col 1 = user time xtic
+#col 2 = total user time in seconds
+#col 3 = kernel time xtic
+#col 4 = total kernel time in seconds
+#col 5 = total idle time
+...
+#col 15 = Sample Time
+1 1   2 2   3 3   4 4 5 5 6 6 7 7   1
+1 1   2 2   3 3   4 4 5 5 6 6 7 7   2
+1 1   2 2   3 3   4 4 5 5 6 6 7 7   3
+1 1   2 2   3 3   4 4 5 5 6 6 7 7   4
 
